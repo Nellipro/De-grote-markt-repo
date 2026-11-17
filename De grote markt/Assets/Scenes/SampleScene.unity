@@ -18331,7 +18331,7 @@ Light:
   m_BounceIntensity: 1
   m_ColorTemperature: 6570
   m_UseColorTemperature: 0
-  m_BoundingSphereOverride: {x: 0, y: 6e-44, z: 3e-45, w: 4.407e-42}
+  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
   m_UseBoundingSphereOverride: 0
   m_UseViewFrustumForShadowCasterCull: 1
   m_ForceVisible: 0
@@ -24162,7 +24162,7 @@ PrefabInstance:
     - target: {fileID: 2621943442536012873, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: 'm_Materials.Array.data[0]'
       value: 
-      objectReference: {fileID: 2100000, guid: 908a72684628b9040ac5d7a0355a9815, type: 2}
+      objectReference: {fileID: 2100000, guid: 32ac6e02e83face50884da1bb7f3670b, type: 2}
     - target: {fileID: 4589183569117551272, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalScale.x
       value: 1
@@ -24257,23 +24257,23 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalScale.x
-      value: 113.208145
+      value: 70
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalScale.y
-      value: 1.6172593
+      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalScale.z
-      value: 113.208145
+      value: 70
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 4.1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 9.7
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 5820721132827048829, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalRotation.w
@@ -24301,7 +24301,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 6001452842031856523, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 2
+      value: 1.421
       objectReference: {fileID: 0}
     - target: {fileID: 6001452842031856523, guid: cc101ca313f366f4fbeea4a63ef30e8c, type: 3}
       propertyPath: m_LocalPosition.z
