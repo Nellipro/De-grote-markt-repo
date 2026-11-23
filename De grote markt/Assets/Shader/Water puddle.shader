@@ -15,9 +15,11 @@ Shader "Custom/VR_Reflective_Tile_Water"
         _ReflectionOpacity ("Reflection Opacity", Range(0.0, 1.0)) = 0.65
 
         [Header(Water Droplet Ripples)]
-        _DropletCount ("Water Droplet Impacts", Int) = 6
-        _DropletSpeed ("Droplet Ripple Speed", Float) = 1.5
-        _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.5
+        // [CHANGED]: Now scales a 3x3 spatial grid so values like 1000 render fully at fast VR framerates
+        _DropletCount ("Water Droplet Impacts", Int) = 250
+        _DropletSize ("Droplet Ripple Size", Range(0.002, 0.1)) = 0.025
+        _DropletSpeed ("Droplet Ripple Speed", Float) = 2.0
+        _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.45
     }
 
     SubShader
@@ -52,7 +54,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float4 positionOS : POSITION;
                 float3 normalOS   : NORMAL;
                 float4 tangentOS  : TANGENT;
-                // [CHANGED / FIX]: Must be float2 (not float) so TRANSFORM_TEX can access .xy
                 float2 uv         : TEXCOORD0;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
@@ -60,7 +61,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
             struct Varyings
             {
                 float4 positionCS  : SV_POSITION;
-                // [CHANGED / FIX]: Explicitly float2 to match Attributes.uv
                 float2 uv          : TEXCOORD0;
                 float3 positionWS  : TEXCOORD1;
                 float3 normalWS    : TEXCOORD2;
@@ -92,41 +92,70 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float _WaterEdgeSoftness;
                 float _ReflectionOpacity;
                 int _DropletCount;
+                float _DropletSize;
                 float _DropletSpeed;
                 float _DropletStrength;
             CBUFFER_END
 
-            float2 Hash21(float p)
+            // [CHANGED]: 2D-to-2D hash so each grid cell gets a unique random position and phase
+            float2 Hash22(float2 p)
             {
-                float3 p3 = frac(float3(p, p, p) * float3(0.1031, 0.1030, 0.0973));
+                float3 p3 = frac(float3(p.xyx) * float3(0.1031, 0.1030, 0.0973));
                 p3 += dot(p3, p3.yzx + 33.33);
                 return frac((p3.xx + p3.yz) * p3.zy);
             }
 
-            float3 CalculateDropletNormal(float2 uv, int count, float speed, float strength)
+            // [CHANGED]: Replaced the 32-capped global loop with a 3x3 spatial grid cell solver.
+            // Supports 1000+ impacts with only 9 loop iterations per pixel and spawns strictly on white noise pixels.
+            float3 CalculateDropletNormal(float2 uv, int count, float size, float speed, float strength, float waterThreshold)
             {
+                if (count <= 0 || strength <= 0.0001)
+                    return float3(0.0, 0.0, 1.0);
+
                 float2 totalOffset = float2(0.0, 0.0);
-                int clampedCount = clamp(count, 0, 32);
 
-                for (int i = 0; i < clampedCount; i++)
+                // [CHANGED]: Derive grid density from _DropletCount (e.g., 1000 impacts -> ~31x31 grid cells)
+                float gridDensity = max(1.0, sqrt((float)count));
+                float2 gridUV = uv * gridDensity;
+                float2 baseCell = floor(gridUV);
+
+                float ringSharpness = 12.0 / max(size, 0.001);
+                float waveFrequency = 24.0 / max(size, 0.001);
+
+                // [CHANGED]: Check the pixel's own cell and its 8 neighbors (always 9 iterations, even at 1000+ impacts)
+                [unroll]
+                for (int y = -1; y <= 1; y++)
                 {
-                    float seed = (float)i + 1.0;
-                    float2 randPos = Hash21(seed * 17.31);
-                    float timeOffset = frac(sin(seed * 91.7) * 43758.5453);
+                    [unroll]
+                    for (int x = -1; x <= 1; x++)
+                    {
+                        float2 neighborCell = baseCell + float2(x, y);
+                        float2 randHash = Hash22(neighborCell);
 
-                    float life = frac(_Time.y * speed * 0.5 + timeOffset);
-                    float maxRadius = 0.25;
-                    float currentRadius = life * maxRadius;
+                        // [CHANGED]: Stagger drop timing per cell and pick a new random spot inside the cell each cycle
+                        float cycle = floor(_Time.y * speed * 0.5 + randHash.x * 13.7);
+                        float life = frac(_Time.y * speed * 0.5 + randHash.x * 13.7);
 
-                    float2 diff = uv - randPos;
-                    float dist = length(diff);
+                        float2 cellJitter = Hash22(neighborCell + cycle * 7.13);
+                        float2 dropUV = (neighborCell + cellJitter) / gridDensity;
 
-                    float ringDist = dist - currentRadius;
-                    float ringMask = exp(-abs(ringDist) * 45.0) * (1.0 - life);
-                    float wave = sin(ringDist * 80.0) * ringMask;
+                        // [CHANGED]: Sample _WaterNoiseMap at the exact droplet spawn UV; skip if not on white water
+                        float spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_WaterNoiseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
+                        float spawnMask = step(waterThreshold, spawnNoise);
+                        if (spawnMask <= 0.0)
+                            continue;
 
-                    float2 dir = (dist > 0.0001) ? (diff / dist) : float2(0.0, 0.0);
-                    totalOffset += dir * wave * strength;
+                        float currentRadius = life * size;
+                        float2 diff = uv - dropUV;
+                        float dist = length(diff);
+
+                        float ringDist = dist - currentRadius;
+                        float ringMask = exp(-abs(ringDist) * ringSharpness) * (1.0 - life);
+                        float wave = sin(ringDist * waveFrequency) * ringMask;
+
+                        float2 dir = (dist > 0.0001) ? (diff / dist) : float2(0.0, 0.0);
+                        totalOffset += dir * wave * strength * spawnMask;
+                    }
                 }
 
                 return normalize(float3(totalOffset.x, totalOffset.y, 1.0));
@@ -147,7 +176,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 output.positionWS = vertexInput.positionWS;
                 output.normalWS = normalInput.normalWS;
                 output.tangentWS = float4(normalInput.tangentWS, input.tangentOS.w);
-                // [CHANGED / FIX]: Direct float2 assignment (avoid .xy on scalar floats)
                 output.uv = input.uv;
                 output.fogFactor = ComputeFogFactor(vertexInput.positionCS.z);
 
@@ -160,7 +188,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
                 // 1. Sample Base Tile Map & Second Base Tile Map
-                // [CHANGED / FIX]: TRANSFORM_TEX safely operates on float2 input.uv
                 float2 uvBase = TRANSFORM_TEX(input.uv, _BaseMap);
                 float2 uvSecond = TRANSFORM_TEX(input.uv, _SecondBaseMap);
                 float2 uvSecondNoise = TRANSFORM_TEX(input.uv, _SecondTileNoiseMap);
@@ -182,13 +209,13 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
                 half3 wetAlbedo = combinedTileAlbedo * lerp(1.0, 0.65, waterMask);
 
-                // 3. Droplet Ripple Normals
+                // 3. Droplet Ripple Normals (restricted to white water regions)
                 float3 baseNormalWS = normalize(input.normalWS);
                 float3 tangentWS = normalize(input.tangentWS.xyz);
                 float3 bitangentWS = cross(baseNormalWS, tangentWS) * input.tangentWS.w;
                 float3x3 TBN = float3x3(tangentWS, bitangentWS, baseNormalWS);
 
-                float3 dropletNormalTS = CalculateDropletNormal(input.uv, _DropletCount, _DropletSpeed, _DropletStrength);
+                float3 dropletNormalTS = CalculateDropletNormal(input.uv, _DropletCount, _DropletSize, _DropletSpeed, _DropletStrength, threshold);
                 float3 dropletNormalWS = normalize(mul(dropletNormalTS, TBN));
 
                 float3 finalNormalWS = normalize(lerp(baseNormalWS, dropletNormalWS, waterMask));
