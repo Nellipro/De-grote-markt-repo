@@ -1,93 +1,145 @@
-Shader "Custom/URP/WetSurfaceAfterRain"
+Shader "Custom/VR_Reflective_Tile_Water"
 {
     Properties
     {
-        [MainTexture] _BaseMap("Base Map (Albedo)", 2D) = "white" {}
-        [MainColor] _BaseColor("Base Color", Color) = (1,1,1,1)
-        _BumpMap("Normal Map", 2D) = "bump" {}
-        _BumpScale("Normal Scale", Float) = 1.0
-        _Smoothness("Dry Smoothness", Range(0.0, 1.0)) = 0.2
-        _Metallic("Metallic", Range(0.0, 1.0)) = 0.0
+        [Header(Base Tile Maps)]
+        _BaseMap ("Basic Tile Map", 2D) = "white" {}
+        _SecondBaseMap ("Second Base Tile Map", 2D) = "white" {}
+        _SecondTileNoiseMap ("Second Tile Noise Map", 2D) = "gray" {}
+        _TileBlendSharpness ("Second Tile Blend Sharpness", Range(0.01, 1.0)) = 0.2
 
-        [Header(Rain and Puddle Settings)]
-        _PuddleMask("Puddle Noise Mask (R)", 2D) = "gray" {}
-        // [CHANGED] Added toggle to switch between Mesh UVs (respects Material Tiling) and World Space
-        [Toggle] _UseMeshUV("Use Mesh UVs Instead of World Space", Float) = 0
-        // [CHANGED] Lowered default scale so world-space puddles cover a much wider area without obvious tiling
-        _PuddleScale("World Puddle Scale (Lower = Larger)", Float) = 0.04
-        _Wetness("Local Wetness Level", Range(0.0, 1.0)) = 0.5
-        _PuddleSharpness("Puddle Edge Sharpness", Range(0.01, 0.5)) = 0.08
-        _WetDarkening("Wet Albedo Darkening", Range(0.1, 1.0)) = 0.45
-        _WetSmoothness("Puddle Smoothness", Range(0.5, 1.0)) = 0.96
+        [Header(Water and Reflections)]
+        _WaterNoiseMap ("Water Location Noise", 2D) = "gray" {}
+        _WaterAmount ("Water Amount", Float) = 0.5
+        _WaterEdgeSoftness ("Water Edge Softness", Range(0.001, 0.5)) = 0.05
+        _ReflectionOpacity ("Reflection Opacity", Range(0.0, 1.0)) = 0.65
+
+        [Header(Water Droplet Ripples)]
+        _DropletCount ("Water Droplet Impacts", Int) = 6
+        _DropletSpeed ("Droplet Ripple Speed", Float) = 1.5
+        _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.5
     }
 
     SubShader
     {
-        Tags { "RenderType" = "Opaque" "RenderPipeline" = "UniversalPipeline" "Queue" = "Geometry" }
-        LOD 300
+        Tags 
+        { 
+            "RenderType" = "Opaque" 
+            "RenderPipeline" = "UniversalPipeline" 
+            "Queue" = "Geometry"
+        }
 
         Pass
         {
-            Name "ForwardLit"
+            Name "VRWater"
             Tags { "LightMode" = "UniversalForward" }
 
             HLSLPROGRAM
             #pragma vertex vert
             #pragma fragment frag
 
-            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE
+            #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
             #pragma multi_compile_fog
+            #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Lighting.hlsl"
 
             struct Attributes
             {
-                float4 positionOS   : POSITION;
-                float3 normalOS     : NORMAL;
-                float4 tangentOS    : TANGENT;
-                float2 uv           : TEXCOORD0;
+                float4 positionOS : POSITION;
+                float3 normalOS   : NORMAL;
+                float4 tangentOS  : TANGENT;
+                // [CHANGED / FIX]: Must be float2 (not float) so TRANSFORM_TEX can access .xy
+                float2 uv         : TEXCOORD0;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
             struct Varyings
             {
-                float4 positionCS   : SV_POSITION;
-                float2 uv           : TEXCOORD0;
-                // [CHANGED] Added raw mesh UV so Puddle Mask can use its own Material Tiling independently
-                float2 puddleUV     : TEXCOORD1;
-                float3 positionWS   : TEXCOORD2;
-                float3 normalWS     : TEXCOORD3;
-                float4 tangentWS    : TEXCOORD4;
-                float fogFactor     : TEXCOORD5;
+                float4 positionCS  : SV_POSITION;
+                // [CHANGED / FIX]: Explicitly float2 to match Attributes.uv
+                float2 uv          : TEXCOORD0;
+                float3 positionWS  : TEXCOORD1;
+                float3 normalWS    : TEXCOORD2;
+                float4 tangentWS   : TEXCOORD3;
+                float fogFactor    : TEXCOORD4;
+                UNITY_VERTEX_INPUT_INSTANCE_ID
+                UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            TEXTURE2D(_BaseMap);        SAMPLER(sampler_BaseMap);
-            TEXTURE2D(_BumpMap);        SAMPLER(sampler_BumpMap);
-            TEXTURE2D(_PuddleMask);     SAMPLER(sampler_PuddleMask);
+            TEXTURE2D(_BaseMap);
+            SAMPLER(sampler_BaseMap);
 
-            float _GlobalRainWetness;
+            TEXTURE2D(_SecondBaseMap);
+            SAMPLER(sampler_SecondBaseMap);
+
+            TEXTURE2D(_SecondTileNoiseMap);
+            SAMPLER(sampler_SecondTileNoiseMap);
+
+            TEXTURE2D(_WaterNoiseMap);
+            SAMPLER(sampler_WaterNoiseMap);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
-                // [CHANGED] Added _PuddleMask_ST so Material Tiling/Offset works when Use Mesh UVs is checked
-                float4 _PuddleMask_ST;
-                half4 _BaseColor;
-                float _BumpScale;
-                half _Smoothness;
-                half _Metallic;
-                float _UseMeshUV;
-                float _PuddleScale;
-                half _Wetness;
-                half _PuddleSharpness;
-                half _WetDarkening;
-                half _WetSmoothness;
+                float4 _SecondBaseMap_ST;
+                float4 _SecondTileNoiseMap_ST;
+                float4 _WaterNoiseMap_ST;
+                float _TileBlendSharpness;
+                float _WaterAmount;
+                float _WaterEdgeSoftness;
+                float _ReflectionOpacity;
+                int _DropletCount;
+                float _DropletSpeed;
+                float _DropletStrength;
             CBUFFER_END
+
+            float2 Hash21(float p)
+            {
+                float3 p3 = frac(float3(p, p, p) * float3(0.1031, 0.1030, 0.0973));
+                p3 += dot(p3, p3.yzx + 33.33);
+                return frac((p3.xx + p3.yz) * p3.zy);
+            }
+
+            float3 CalculateDropletNormal(float2 uv, int count, float speed, float strength)
+            {
+                float2 totalOffset = float2(0.0, 0.0);
+                int clampedCount = clamp(count, 0, 32);
+
+                for (int i = 0; i < clampedCount; i++)
+                {
+                    float seed = (float)i + 1.0;
+                    float2 randPos = Hash21(seed * 17.31);
+                    float timeOffset = frac(sin(seed * 91.7) * 43758.5453);
+
+                    float life = frac(_Time.y * speed * 0.5 + timeOffset);
+                    float maxRadius = 0.25;
+                    float currentRadius = life * maxRadius;
+
+                    float2 diff = uv - randPos;
+                    float dist = length(diff);
+
+                    float ringDist = dist - currentRadius;
+                    float ringMask = exp(-abs(ringDist) * 45.0) * (1.0 - life);
+                    float wave = sin(ringDist * 80.0) * ringMask;
+
+                    float2 dir = (dist > 0.0001) ? (diff / dist) : float2(0.0, 0.0);
+                    totalOffset += dir * wave * strength;
+                }
+
+                return normalize(float3(totalOffset.x, totalOffset.y, 1.0));
+            }
 
             Varyings vert(Attributes input)
             {
-                Varyings output;
+                Varyings output = (Varyings)0;
+
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_TRANSFER_INSTANCE_ID(input, output);
+                UNITY_INITIALIZE_VERTEX_OUTPUT_STEREO(output);
+
                 VertexPositionInputs vertexInput = GetVertexPositionInputs(input.positionOS.xyz);
                 VertexNormalInputs normalInput = GetVertexNormalInputs(input.normalOS, input.tangentOS);
 
@@ -95,9 +147,8 @@ Shader "Custom/URP/WetSurfaceAfterRain"
                 output.positionWS = vertexInput.positionWS;
                 output.normalWS = normalInput.normalWS;
                 output.tangentWS = float4(normalInput.tangentWS, input.tangentOS.w);
-                output.uv = TRANSFORM_TEX(input.uv, _BaseMap);
-                // [CHANGED] Compute scaled UVs for the puddle mask
-                output.puddleUV = TRANSFORM_TEX(input.uv, _PuddleMask);
+                // [CHANGED / FIX]: Direct float2 assignment (avoid .xy on scalar floats)
+                output.uv = input.uv;
                 output.fogFactor = ComputeFogFactor(vertexInput.positionCS.z);
 
                 return output;
@@ -105,65 +156,62 @@ Shader "Custom/URP/WetSurfaceAfterRain"
 
             half4 frag(Varyings input) : SV_Target
             {
-                // 1. Sample Base Textures
-                half4 albedoSample = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, input.uv) * _BaseColor;
-                half3 tangentNormal = UnpackNormalScale(SAMPLE_TEXTURE2D(_BumpMap, sampler_BumpMap, input.uv), _BumpScale);
+                UNITY_SETUP_INSTANCE_ID(input);
+                UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                // 2. [CHANGED] Fixed multiplication operator & added Mesh UV vs World Space option + macro breakup
-                float2 basePuddleUV = (_UseMeshUV > 0.5) ? input.puddleUV : (input.positionWS.xz * _PuddleScale);
-                half maskMain = SAMPLE_TEXTURE2D(_PuddleMask, sampler_PuddleMask, basePuddleUV).r;
-                // Sample a second rotated/scaled octave to break up visible grid repetition
-                float2 macroUV = float2(basePuddleUV.x * 0.37 - basePuddleUV.y * 0.21, basePuddleUV.x * 0.21 + basePuddleUV.y * 0.37);
-                half maskMacro = SAMPLE_TEXTURE2D(_PuddleMask, sampler_PuddleMask, macroUV).r;
-                half maskValue = saturate(maskMain * 0.65 + maskMacro * 0.45);
+                // 1. Sample Base Tile Map & Second Base Tile Map
+                // [CHANGED / FIX]: TRANSFORM_TEX safely operates on float2 input.uv
+                float2 uvBase = TRANSFORM_TEX(input.uv, _BaseMap);
+                float2 uvSecond = TRANSFORM_TEX(input.uv, _SecondBaseMap);
+                float2 uvSecondNoise = TRANSFORM_TEX(input.uv, _SecondTileNoiseMap);
 
-                // Combine local material wetness with global weather controller
-                half activeWetness = saturate(max(_Wetness, _GlobalRainWetness));
+                half4 baseCol = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvBase);
+                half4 secondCol = SAMPLE_TEXTURE2D(_SecondBaseMap, sampler_SecondBaseMap, uvSecond);
+                half secondNoise = SAMPLE_TEXTURE2D(_SecondTileNoiseMap, sampler_SecondTileNoiseMap, uvSecondNoise).r;
 
-                // [CHANGED] Fixed minus operator: (input.normalWS.y - 0.5)
-                half upwardFactor = saturate((input.normalWS.y - 0.5) * 2.0);
-                activeWetness *= upwardFactor;
+                half tileBlend = smoothstep(0.5 - _TileBlendSharpness, 0.5 + _TileBlendSharpness, secondNoise);
+                half3 combinedTileAlbedo = lerp(baseCol.rgb, secondCol.rgb, tileBlend);
 
-                // 3. [CHANGED] Fixed minus operators in smoothstep thresholds
-                half dampMask = smoothstep(1.0 - activeWetness, (1.0 - activeWetness) + 0.35, maskValue);
-                half puddleMask = smoothstep(1.0 - (activeWetness * 0.85), (1.0 - (activeWetness * 0.85)) + _PuddleSharpness, maskValue);
+                // 2. Water Mask from Water Noise & Water Amount
+                float2 uvWaterNoise = TRANSFORM_TEX(input.uv, _WaterNoiseMap);
+                half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_WaterNoiseMap, uvWaterNoise).r;
 
-                // 4. [CHANGED] Fixed multiplication operator: albedoSample.rgb * _WetDarkening
-                half3 finalAlbedo = lerp(albedoSample.rgb, albedoSample.rgb * _WetDarkening, saturate(dampMask + puddleMask));
+                float threshold = 1.0 - saturate(_WaterAmount);
+                half waterMask = smoothstep(threshold - _WaterEdgeSoftness, threshold + _WaterEdgeSoftness, waterNoise);
+                waterMask *= step(0.0001, _WaterAmount);
 
-                half3 flatNormal = half3(0.0, 0.0, 1.0);
-                half3 finalTangentNormal = lerp(tangentNormal, flatNormal, puddleMask * 0.92);
+                half3 wetAlbedo = combinedTileAlbedo * lerp(1.0, 0.65, waterMask);
 
-                half dampSmoothness = lerp(_Smoothness, lerp(_Smoothness, _WetSmoothness, 0.45), dampMask);
-                half finalSmoothness = lerp(dampSmoothness, _WetSmoothness, puddleMask);
+                // 3. Droplet Ripple Normals
+                float3 baseNormalWS = normalize(input.normalWS);
+                float3 tangentWS = normalize(input.tangentWS.xyz);
+                float3 bitangentWS = cross(baseNormalWS, tangentWS) * input.tangentWS.w;
+                float3x3 TBN = float3x3(tangentWS, bitangentWS, baseNormalWS);
 
-                // [CHANGED] Fixed multiplication operator: input.tangentWS.w * cross(...)
-                float3 bitangent = input.tangentWS.w * cross(input.normalWS, input.tangentWS.xyz);
-                half3 normalWS = TransformTangentToWorld(finalTangentNormal, half3x3(input.tangentWS.xyz, bitangent, input.normalWS));
-                normalWS = NormalizeNormalPerPixel(normalWS);
+                float3 dropletNormalTS = CalculateDropletNormal(input.uv, _DropletCount, _DropletSpeed, _DropletStrength);
+                float3 dropletNormalWS = normalize(mul(dropletNormalTS, TBN));
 
-                // 5. PBR Lighting Calculation
-                InputData inputData = (InputData)0;
-                inputData.positionWS = input.positionWS;
-                inputData.normalWS = normalWS;
-                inputData.viewDirectionWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
-                inputData.shadowCoord = TransformWorldToShadowCoord(input.positionWS);
-                inputData.fogCoord = input.fogFactor;
-                inputData.bakedGI = SampleSH(normalWS);
+                float3 finalNormalWS = normalize(lerp(baseNormalWS, dropletNormalWS, waterMask));
 
-                SurfaceData surfaceData = (SurfaceData)0;
-                surfaceData.albedo = finalAlbedo;
-                surfaceData.metallic = _Metallic;
-                surfaceData.specular = half3(0.0, 0.0, 0.0);
-                surfaceData.smoothness = finalSmoothness;
-                surfaceData.normalTS = finalTangentNormal;
-                surfaceData.occlusion = 1.0;
-                surfaceData.alpha = albedoSample.a;
+                // 4. Lighting
+                float4 shadowCoord = TransformWorldToShadowCoord(input.positionWS);
+                Light mainLight = GetMainLight(shadowCoord);
+                half NdotL = saturate(dot(finalNormalWS, mainLight.direction));
+                half3 ambient = SampleSH(finalNormalWS);
+                half3 litBaseColor = wetAlbedo * (ambient + mainLight.color * mainLight.shadowAttenuation * NdotL);
 
-                half4 color = UniversalFragmentPBR(inputData, surfaceData);
-                color.rgb = MixFog(color.rgb, inputData.fogCoord);
+                // 5. Environment Reflection
+                float3 viewDirWS = GetWorldSpaceNormalizeViewDir(input.positionWS);
+                float3 reflectVector = reflect(-viewDirWS, finalNormalWS);
+                half3 envReflection = GlossyEnvironmentReflection(reflectVector, input.positionWS, 0.05h, 1.0h);
 
-                return color;
+                // 6. Reflection Opacity Blend
+                half finalReflectionFactor = waterMask * saturate(_ReflectionOpacity);
+                half3 finalColor = lerp(litBaseColor, envReflection, finalReflectionFactor);
+
+                finalColor = MixFog(finalColor, input.fogFactor);
+
+                return half4(finalColor, 1.0);
             }
             ENDHLSL
         }
