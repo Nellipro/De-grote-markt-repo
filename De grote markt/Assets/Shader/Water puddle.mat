@@ -52,18 +52,18 @@ Material:
     m_Floats:
     - _BumpScale: 1
     - _DropletCount: 10000
-    - _DropletSize: 0.0036
+    - _DropletSize: 0.005
     - _DropletSpeed: 1.5
-    - _DropletStrength: 0.5
+    - _DropletStrength: 0.32
     - _Metallic: 0.219
     - _PuddleScale: 0.15
     - _PuddleSharpness: 0.149
-    - _ReflectionOpacity: 0.65
+    - _ReflectionOpacity: 0.384
     - _Smoothness: 0.132
-    - _TileBlendSharpness: 0.01
+    - _TileBlendSharpness: 0.162
     - _UseMeshUV: 1
     - _WaterAmount: 0.5
-    - _WaterEdgeSoftness: 0.05
+    - _WaterEdgeSoftness: 0.383
     - _WetDarkening: 0.319
     - _WetSmoothness: 0.956
     - _Wetness: 0.675

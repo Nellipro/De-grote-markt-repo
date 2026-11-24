@@ -16,7 +16,7 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
         [Header(Water Droplet Ripples)]
         _DropletCount ("Water Droplet Impacts", Int) = 250
-        _DropletSize ("Droplet Ripple Size", Range(0.002, 0.1)) = 0.025
+        _DropletSize ("Droplet Ripple Size", Range(0.002, 0.2)) = 0.025
         _DropletSpeed ("Droplet Ripple Speed", Float) = 2.0
         _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.45
     }
@@ -40,9 +40,8 @@ Shader "Custom/VR_Reflective_Tile_Water"
             #pragma fragment frag
 
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
-            #pragma multi_compile _ _ADDITIONAL_LIGHTS_VERTEX _ADDITIONAL_LIGHTS
+            // [CHANGED]: Removed unused _ADDITIONAL_LIGHTS and multi_compile_fog pragmas to reduce shader variants and disable fog
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
-            #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -62,32 +61,26 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float4 positionCS  : SV_POSITION;
                 float2 uv          : TEXCOORD0;
                 float3 positionWS  : TEXCOORD1;
-                // [CHANGED]: Packed normalWS and tangentWS in half precision to reduce interpolator bandwidth in VR
                 half3 normalWS     : TEXCOORD2;
                 half4 tangentWS    : TEXCOORD3;
-                half fogFactor     : TEXCOORD4;
+                // [CHANGED]: Removed fogFactor interpolator so fog never affects the floor and bandwidth is saved
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
+            // [CHANGED]: Consolidated to a single shared sampler (sampler_BaseMap) to save GPU sampler slots
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
 
             TEXTURE2D(_SecondBaseMap);
-            SAMPLER(sampler_SecondBaseMap);
-
             TEXTURE2D(_SecondTileNoiseMap);
-            SAMPLER(sampler_SecondTileNoiseMap);
-
             TEXTURE2D(_WaterNoiseMap);
-            SAMPLER(sampler_WaterNoiseMap);
 
             CBUFFER_START(UnityPerMaterial)
                 float4 _BaseMap_ST;
                 float4 _SecondBaseMap_ST;
                 float4 _SecondTileNoiseMap_ST;
                 float4 _WaterNoiseMap_ST;
-                // [CHANGED]: Used half for scalar material properties to save constant buffer and ALU registers
                 half _TileBlendSharpness;
                 half _WaterAmount;
                 half _WaterEdgeSoftness;
@@ -105,16 +98,17 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 return frac((p3.xx + p3.yz) * p3.zy);
             }
 
-            // [CHANGED]: Optimized ripple solver using squared-distance early-out before texture reads and half-precision wave math
             half3 CalculateDropletNormal(float2 uv, int count, float size, float speed, half strength, half waterThreshold)
             {
                 half2 totalOffset = half2(0.0h, 0.0h);
 
-                float gridDensity = max(1.0, sqrt((float)count));
-                // [CHANGED]: Precomputed reciprocals and squared radius outside the loop
+                float safeSize = max(size, 0.001);
+                float maxSafeDensity = 1.0 / safeSize;
+                float gridDensity = max(1.0, min(sqrt((float)count), maxSafeDensity));
+
                 float invGridDensity = 1.0 / gridDensity;
-                float sizeSq = size * size;
-                float invSize = 1.0 / max(size, 0.001);
+                float sizeSq = safeSize * safeSize;
+                float invSize = 1.0 / safeSize;
                 half ringSharpness = (half)(12.0 * invSize);
                 half waveFrequency = (half)(24.0 * invSize);
                 float scaledTime = _Time.y * speed * 0.5;
@@ -141,21 +135,26 @@ Shader "Custom/VR_Reflective_Tile_Water"
                         float2 diff = uv - dropUV;
                         float distSq = dot(diff, diff);
 
-                        // [CHANGED]: Skip texture lookup, sqrt, sin, and exp immediately if pixel is outside this droplet's max radius
                         if (distSq > sizeSq)
                             continue;
 
-                        // [CHANGED]: Only sample _WaterNoiseMap after confirming the pixel is within ripple range
-                        half spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_WaterNoiseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
+                        // [CHANGED]: Uses shared sampler_BaseMap
+                        half spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_BaseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
                         if (spawnNoise < waterThreshold)
                             continue;
 
                         float dist = sqrt(distSq);
-                        half ringDist = (half)(dist - (float)life * size);
-                        half ringMask = exp(-abs(ringDist) * ringSharpness) * (1.0h - life);
+                        half edgeFade = (half)smoothstep(safeSize, safeSize * 0.65, dist);
+
+                        half ringDist = (half)(dist - (float)life * safeSize);
+
+                        // [CHANGED]: Fast rational falloff instead of expensive exp() for lower VR ALU cost
+                        half falloffInput = abs(ringDist) * ringSharpness;
+                        half ringFalloff = rcp(1.0h + falloffInput + 0.48h * falloffInput * falloffInput);
+                        half ringMask = ringFalloff * (1.0h - life) * edgeFade;
+
                         half wave = sin(ringDist * waveFrequency) * ringMask;
 
-                        // [CHANGED]: Use rsqrt(distSq) instead of dividing by length to normalize direction faster
                         half2 dir = (distSq > 1e-8) ? (half2)(diff * rsqrt(distSq)) : half2(0.0h, 0.0h);
                         totalOffset += dir * (wave * strength);
                     }
@@ -180,7 +179,7 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 output.normalWS = (half3)normalInput.normalWS;
                 output.tangentWS = half4((half3)normalInput.tangentWS, (half)input.tangentOS.w);
                 output.uv = input.uv;
-                output.fogFactor = (half)ComputeFogFactor(vertexInput.positionCS.z);
+                // [CHANGED]: Removed ComputeFogFactor calculation
 
                 return output;
             }
@@ -190,21 +189,23 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                // 1. Sample Base Tile Map & Second Base Tile Map
+                // 1. Sample Base Tile Map & Second Base Tile Map (using shared sampler_BaseMap)
                 float2 uvBase = TRANSFORM_TEX(input.uv, _BaseMap);
                 float2 uvSecond = TRANSFORM_TEX(input.uv, _SecondBaseMap);
                 float2 uvSecondNoise = TRANSFORM_TEX(input.uv, _SecondTileNoiseMap);
 
                 half3 baseCol = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvBase).rgb;
-                half3 secondCol = SAMPLE_TEXTURE2D(_SecondBaseMap, sampler_SecondBaseMap, uvSecond).rgb;
-                half secondNoise = SAMPLE_TEXTURE2D(_SecondTileNoiseMap, sampler_SecondTileNoiseMap, uvSecondNoise).r;
+                // [CHANGED]: Reused sampler_BaseMap across all texture reads
+                half3 secondCol = SAMPLE_TEXTURE2D(_SecondBaseMap, sampler_BaseMap, uvSecond).rgb;
+                half secondNoise = SAMPLE_TEXTURE2D(_SecondTileNoiseMap, sampler_BaseMap, uvSecondNoise).r;
 
                 half tileBlend = smoothstep(0.5h - _TileBlendSharpness, 0.5h + _TileBlendSharpness, secondNoise);
                 half3 combinedTileAlbedo = lerp(baseCol, secondCol, tileBlend);
 
                 // 2. Water Mask from Water Noise & Water Amount
                 float2 uvWaterNoise = TRANSFORM_TEX(input.uv, _WaterNoiseMap);
-                half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_WaterNoiseMap, uvWaterNoise).r;
+                // [CHANGED]: Reused sampler_BaseMap
+                half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_BaseMap, uvWaterNoise).r;
 
                 half threshold = 1.0h - saturate(_WaterAmount);
                 half waterMask = smoothstep(threshold - _WaterEdgeSoftness, threshold + _WaterEdgeSoftness, waterNoise);
@@ -216,7 +217,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 half3 baseNormalWS = normalize(input.normalWS);
                 half3 finalNormalWS = baseNormalWS;
 
-                // [CHANGED]: Dynamic branch skips the entire 3x3 grid solver and TBN matrix construction on dry pixels
                 [branch]
                 if (waterMask > 0.001h && _DropletCount > 0 && _DropletStrength > 0.0001h)
                 {
@@ -238,7 +238,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 half3 litBaseColor = wetAlbedo * (ambient + (half3)mainLight.color * (half)mainLight.shadowAttenuation * NdotL);
 
                 // 5. Environment Reflection
-                // [CHANGED]: Skip reflection probe sampling completely on dry pixels where waterMask is 0
                 half3 finalColor = litBaseColor;
                 half finalReflectionFactor = waterMask * saturate(_ReflectionOpacity);
 
@@ -251,7 +250,7 @@ Shader "Custom/VR_Reflective_Tile_Water"
                     finalColor = lerp(litBaseColor, envReflection, finalReflectionFactor);
                 }
 
-                finalColor = MixFog(finalColor, input.fogFactor);
+                // [CHANGED]: Removed MixFog(finalColor, input.fogFactor) so fog does not alter the floor color
 
                 return half4(finalColor, 1.0h);
             }
