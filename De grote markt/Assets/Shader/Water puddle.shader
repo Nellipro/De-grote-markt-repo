@@ -19,6 +19,11 @@ Shader "Custom/VR_Reflective_Tile_Water"
         _DropletSize ("Droplet Ripple Size", Range(0.002, 0.2)) = 0.025
         _DropletSpeed ("Droplet Ripple Speed", Float) = 2.0
         _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.45
+
+        // [CHANGED]: Added Inspector controls for the clear fog radius around the player and smooth fade-in distance
+        [Header(Player Distance Fog)]
+        _FogClearRadius ("Fog Clear Radius", Float) = 5.0
+        _FogTransitionDistance ("Fog Transition Distance", Float) = 10.0
     }
 
     SubShader
@@ -40,8 +45,9 @@ Shader "Custom/VR_Reflective_Tile_Water"
             #pragma fragment frag
 
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
-            // [CHANGED]: Removed unused _ADDITIONAL_LIGHTS and multi_compile_fog pragmas to reduce shader variants and disable fog
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
+            // [CHANGED]: Re-enabled multi_compile_fog so URP scene fog can blend in at a distance from the player
+            #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
             #include "Packages/com.unity.render-pipelines.universal/ShaderLibrary/Core.hlsl"
@@ -63,12 +69,12 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float3 positionWS  : TEXCOORD1;
                 half3 normalWS     : TEXCOORD2;
                 half4 tangentWS    : TEXCOORD3;
-                // [CHANGED]: Removed fogFactor interpolator so fog never affects the floor and bandwidth is saved
+                // [CHANGED]: Restored fogFactor interpolator to compute URP scene fog
+                half fogFactor     : TEXCOORD4;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
-            // [CHANGED]: Consolidated to a single shared sampler (sampler_BaseMap) to save GPU sampler slots
             TEXTURE2D(_BaseMap);
             SAMPLER(sampler_BaseMap);
 
@@ -89,6 +95,9 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float _DropletSize;
                 float _DropletSpeed;
                 half _DropletStrength;
+                // [CHANGED]: Added player fog radius and transition properties to UnityPerMaterial buffer
+                float _FogClearRadius;
+                float _FogTransitionDistance;
             CBUFFER_END
 
             float2 Hash22(float2 p)
@@ -138,7 +147,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                         if (distSq > sizeSq)
                             continue;
 
-                        // [CHANGED]: Uses shared sampler_BaseMap
                         half spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_BaseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
                         if (spawnNoise < waterThreshold)
                             continue;
@@ -148,7 +156,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
                         half ringDist = (half)(dist - (float)life * safeSize);
 
-                        // [CHANGED]: Fast rational falloff instead of expensive exp() for lower VR ALU cost
                         half falloffInput = abs(ringDist) * ringSharpness;
                         half ringFalloff = rcp(1.0h + falloffInput + 0.48h * falloffInput * falloffInput);
                         half ringMask = ringFalloff * (1.0h - life) * edgeFade;
@@ -179,7 +186,8 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 output.normalWS = (half3)normalInput.normalWS;
                 output.tangentWS = half4((half3)normalInput.tangentWS, (half)input.tangentOS.w);
                 output.uv = input.uv;
-                // [CHANGED]: Removed ComputeFogFactor calculation
+                // [CHANGED]: Compute URP fog factor in vertex shader
+                output.fogFactor = (half)ComputeFogFactor(vertexInput.positionCS.z);
 
                 return output;
             }
@@ -189,13 +197,12 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                // 1. Sample Base Tile Map & Second Base Tile Map (using shared sampler_BaseMap)
+                // 1. Sample Base Tile Map & Second Base Tile Map
                 float2 uvBase = TRANSFORM_TEX(input.uv, _BaseMap);
                 float2 uvSecond = TRANSFORM_TEX(input.uv, _SecondBaseMap);
                 float2 uvSecondNoise = TRANSFORM_TEX(input.uv, _SecondTileNoiseMap);
 
                 half3 baseCol = SAMPLE_TEXTURE2D(_BaseMap, sampler_BaseMap, uvBase).rgb;
-                // [CHANGED]: Reused sampler_BaseMap across all texture reads
                 half3 secondCol = SAMPLE_TEXTURE2D(_SecondBaseMap, sampler_BaseMap, uvSecond).rgb;
                 half secondNoise = SAMPLE_TEXTURE2D(_SecondTileNoiseMap, sampler_BaseMap, uvSecondNoise).r;
 
@@ -204,7 +211,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
                 // 2. Water Mask from Water Noise & Water Amount
                 float2 uvWaterNoise = TRANSFORM_TEX(input.uv, _WaterNoiseMap);
-                // [CHANGED]: Reused sampler_BaseMap
                 half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_BaseMap, uvWaterNoise).r;
 
                 half threshold = 1.0h - saturate(_WaterAmount);
@@ -250,7 +256,17 @@ Shader "Custom/VR_Reflective_Tile_Water"
                     finalColor = lerp(litBaseColor, envReflection, finalReflectionFactor);
                 }
 
-                // [CHANGED]: Removed MixFog(finalColor, input.fogFactor) so fog does not alter the floor color
+                // [CHANGED]: Measure horizontal (XZ) circle distance from the VR player/camera position
+                float playerDistXZ = length(input.positionWS.xz - _WorldSpaceCameraPos.xz);
+                half fogDistanceMask = (half)smoothstep(_FogClearRadius, _FogClearRadius + max(_FogTransitionDistance, 0.001), playerDistXZ);
+
+                // [CHANGED]: Keep the floor completely clear inside _FogClearRadius, then smoothly blend in scene fog
+                [branch]
+                if (fogDistanceMask > 0.001h)
+                {
+                    half3 foggedColor = MixFog(finalColor, input.fogFactor);
+                    finalColor = lerp(finalColor, foggedColor, fogDistanceMask);
+                }
 
                 return half4(finalColor, 1.0h);
             }
