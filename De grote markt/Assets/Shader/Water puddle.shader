@@ -10,8 +10,11 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
         [Header(Water and Reflections)]
         _WaterNoiseMap ("Water Location Noise", 2D) = "gray" {}
-        _WaterAmount ("Water Amount", Float) = 0.5
+        _WaterAmount ("Water Amount", Range(0.0, 1.0)) = 0.5
         _WaterEdgeSoftness ("Water Edge Softness", Range(0.001, 0.5)) = 0.05
+        _WetPathBrightness ("Wet Path Brightness", Range(0.2, 1.0)) = 0.72
+        // [CHANGED]: Added control for how smoothly the ground darkens as Water Amount increases
+        _WetnessRampEnd ("Wetness Full At Water Amount", Range(0.05, 1.0)) = 0.35
         _ReflectionOpacity ("Reflection Opacity", Range(0.0, 1.0)) = 0.65
 
         [Header(Water Droplet Ripples)]
@@ -20,7 +23,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
         _DropletSpeed ("Droplet Ripple Speed", Float) = 2.0
         _DropletStrength ("Droplet Ripple Strength", Range(0.0, 2.0)) = 0.45
 
-        // [CHANGED]: Added Inspector controls for the clear fog radius around the player and smooth fade-in distance
         [Header(Player Distance Fog)]
         _FogClearRadius ("Fog Clear Radius", Float) = 5.0
         _FogTransitionDistance ("Fog Transition Distance", Float) = 10.0
@@ -46,7 +48,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
             #pragma multi_compile _ _MAIN_LIGHT_SHADOWS _MAIN_LIGHT_SHADOWS_CASCADE _MAIN_LIGHT_SHADOWS_SCREEN
             #pragma multi_compile_fragment _ _SHADOWS_SOFT
-            // [CHANGED]: Re-enabled multi_compile_fog so URP scene fog can blend in at a distance from the player
             #pragma multi_compile_fog
             #pragma multi_compile_instancing
 
@@ -69,7 +70,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float3 positionWS  : TEXCOORD1;
                 half3 normalWS     : TEXCOORD2;
                 half4 tangentWS    : TEXCOORD3;
-                // [CHANGED]: Restored fogFactor interpolator to compute URP scene fog
                 half fogFactor     : TEXCOORD4;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
@@ -90,12 +90,14 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 half _TileBlendSharpness;
                 half _WaterAmount;
                 half _WaterEdgeSoftness;
+                half _WetPathBrightness;
+                // [CHANGED]: Added _WetnessRampEnd to UnityPerMaterial CBUFFER
+                half _WetnessRampEnd;
                 half _ReflectionOpacity;
                 int _DropletCount;
                 float _DropletSize;
                 float _DropletSpeed;
                 half _DropletStrength;
-                // [CHANGED]: Added player fog radius and transition properties to UnityPerMaterial buffer
                 float _FogClearRadius;
                 float _FogTransitionDistance;
             CBUFFER_END
@@ -186,7 +188,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 output.normalWS = (half3)normalInput.normalWS;
                 output.tangentWS = half4((half3)normalInput.tangentWS, (half)input.tangentOS.w);
                 output.uv = input.uv;
-                // [CHANGED]: Compute URP fog factor in vertex shader
                 output.fogFactor = (half)ComputeFogFactor(vertexInput.positionCS.z);
 
                 return output;
@@ -209,15 +210,23 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 half tileBlend = smoothstep(0.5h - _TileBlendSharpness, 0.5h + _TileBlendSharpness, secondNoise);
                 half3 combinedTileAlbedo = lerp(baseCol, secondCol, tileBlend);
 
-                // 2. Water Mask from Water Noise & Water Amount
+                // 2. Calibrated Water Mask (starts as tiny puddles at low Water Amount and expands smoothly)
                 float2 uvWaterNoise = TRANSFORM_TEX(input.uv, _WaterNoiseMap);
                 half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_BaseMap, uvWaterNoise).r;
 
-                half threshold = 1.0h - saturate(_WaterAmount);
+                half clampedWater = saturate(_WaterAmount);
+                // [CHANGED]: Quadratic curve (clampedWater * clampedWater) ensures low values spawn tiny puddles
+                // at the brightest noise centers instead of immediately flooding large plateaus.
+                half curvedWater = clampedWater * clampedWater;
+                half threshold = lerp(1.0h + _WaterEdgeSoftness, -_WaterEdgeSoftness, curvedWater);
                 half waterMask = smoothstep(threshold - _WaterEdgeSoftness, threshold + _WaterEdgeSoftness, waterNoise);
-                waterMask *= step(0.0001h, _WaterAmount);
+                waterMask *= step(0.0001h, clampedWater);
 
-                half3 wetAlbedo = combinedTileAlbedo * lerp(1.0h, 0.65h, waterMask);
+                // [CHANGED]: Replaced hard step(0.2501h, ...) pop-in with a smooth ramp tied to _WaterAmount
+                half pathDampFactor = smoothstep(0.0h, max(_WetnessRampEnd, 0.001h), clampedWater);
+                half surfaceBrightness = lerp(1.0h, _WetPathBrightness, max(pathDampFactor, waterMask));
+                surfaceBrightness *= lerp(1.0h, 0.85h, waterMask);
+                half3 wetAlbedo = combinedTileAlbedo * surfaceBrightness;
 
                 // 3. Droplet Ripple Normals
                 half3 baseNormalWS = normalize(input.normalWS);
@@ -256,11 +265,10 @@ Shader "Custom/VR_Reflective_Tile_Water"
                     finalColor = lerp(litBaseColor, envReflection, finalReflectionFactor);
                 }
 
-                // [CHANGED]: Measure horizontal (XZ) circle distance from the VR player/camera position
+                // 6. Player Distance Fog Circle
                 float playerDistXZ = length(input.positionWS.xz - _WorldSpaceCameraPos.xz);
                 half fogDistanceMask = (half)smoothstep(_FogClearRadius, _FogClearRadius + max(_FogTransitionDistance, 0.001), playerDistXZ);
 
-                // [CHANGED]: Keep the floor completely clear inside _FogClearRadius, then smoothly blend in scene fog
                 [branch]
                 if (fogDistanceMask > 0.001h)
                 {

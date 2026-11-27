@@ -51,8 +51,8 @@ Material:
     m_Ints: []
     m_Floats:
     - _BumpScale: 1
-    - _DropletCount: 0
-    - _DropletSize: 0.005
+    - _DropletCount: 10000
+    - _DropletSize: 0.014
     - _DropletSpeed: 1.5
     - _DropletStrength: 0.32
     - _FogClearRadius: 5
@@ -60,15 +60,17 @@ Material:
     - _Metallic: 0.219
     - _PuddleScale: 0.15
     - _PuddleSharpness: 0.149
-    - _ReflectionOpacity: 0.384
+    - _ReflectionOpacity: 0.106
     - _Smoothness: 0.132
     - _TileBlendSharpness: 0.01
     - _UseMeshUV: 1
-    - _WaterAmount: 0
-    - _WaterEdgeSoftness: 0.383
+    - _WaterAmount: 0.317
+    - _WaterEdgeSoftness: 0.151
     - _WetDarkening: 0.319
+    - _WetPathBrightness: 0.542
     - _WetSmoothness: 0.956
     - _Wetness: 0.675
+    - _WetnessRampEnd: 0.404
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
