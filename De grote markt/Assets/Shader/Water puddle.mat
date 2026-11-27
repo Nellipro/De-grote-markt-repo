@@ -81,7 +81,7 @@ Material:
     - _ReflectionOpacity: 0.106
     - _RimPower: 1
     - _Smoothness: 0.132
-    - _SnowAmount: 0.601
+    - _SnowAmount: 0
     - _SnowBumpScale: 1.2
     - _SnowEdgeSoftness: 0.465
     - _SnowMaxHeight: 0.285
@@ -93,7 +93,7 @@ Material:
     - _TileBlendSharpness: 0.01
     - _UseMeshUV: 1
     - _UsePileNoise: 1
-    - _WaterAmount: 0.785
+    - _WaterAmount: 0
     - _WaterEdgeSoftness: 0.151
     - _WaterMeltsSnow: 1
     - _WetDarkening: 0.319
