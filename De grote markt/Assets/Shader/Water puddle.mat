@@ -44,6 +44,22 @@ Material:
         m_Texture: {fileID: 2800000, guid: f4652e7e34feb3c7c8d6dc7298f75a4a, type: 3}
         m_Scale: {x: 1, y: 1}
         m_Offset: {x: 0, y: 0}
+    - _SnowBumpMap:
+        m_Texture: {fileID: 2800000, guid: 9f1e2819501441d29a49de009653f10b, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SnowMap:
+        m_Texture: {fileID: 2800000, guid: ab784163414f789b19571a5d1b6ac5c9, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SnowNoiseMap:
+        m_Texture: {fileID: 2800000, guid: 7dbc7ee0b49b6488fac519652e1118f2, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
+    - _SnowPileNoiseMap:
+        m_Texture: {fileID: 2800000, guid: 490d5de59eac600139de59bfd38c3645, type: 3}
+        m_Scale: {x: 1, y: 1}
+        m_Offset: {x: 0, y: 0}
     - _WaterNoiseMap:
         m_Texture: {fileID: 2800000, guid: 490d5de59eac600139de59bfd38c3645, type: 3}
         m_Scale: {x: 1, y: 1}
@@ -58,14 +74,27 @@ Material:
     - _FogClearRadius: 5
     - _FogTransitionDistance: 10
     - _Metallic: 0.219
+    - _PileNormalStrength: 0
     - _PuddleScale: 0.15
     - _PuddleSharpness: 0.149
     - _ReflectionOpacity: 0.106
+    - _RimPower: 1
     - _Smoothness: 0.132
+    - _SnowAmount: 0.601
+    - _SnowBumpScale: 1.2
+    - _SnowEdgeSoftness: 0.465
+    - _SnowMaxHeight: 1
+    - _SnowPileSharpness: 0.5
+    - _SparkleIntensity: 2.89
+    - _SparkleScale: 35
+    - _SparkleSize: 0.069
+    - _SparkleThreshold: 0.283
     - _TileBlendSharpness: 0.01
     - _UseMeshUV: 1
-    - _WaterAmount: 0.317
+    - _UsePileNoise: 0
+    - _WaterAmount: 0.785
     - _WaterEdgeSoftness: 0.151
+    - _WaterMeltsSnow: 1
     - _WetDarkening: 0.319
     - _WetPathBrightness: 0.542
     - _WetSmoothness: 0.956
@@ -73,5 +102,7 @@ Material:
     - _WetnessRampEnd: 0.404
     m_Colors:
     - _BaseColor: {r: 1, g: 1, b: 1, a: 1}
+    - _RimColor: {r: 0.6933962, g: 0.84153056, b: 1, a: 1}
+    - _SnowColor: {r: 0.92, g: 0.96, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
