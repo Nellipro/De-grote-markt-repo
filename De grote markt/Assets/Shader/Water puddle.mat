@@ -11,7 +11,8 @@ Material:
   m_Shader: {fileID: 4800000, guid: b13a6091f3e9c86518afe3d0f1b0f3fb, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
-  m_ValidKeywords: []
+  m_ValidKeywords:
+  - _USE_PILE_NOISE
   m_InvalidKeywords:
   - _USEMESHUV_ON
   m_LightmapFlags: 4
@@ -74,7 +75,7 @@ Material:
     - _FogClearRadius: 5
     - _FogTransitionDistance: 10
     - _Metallic: 0.219
-    - _PileNormalStrength: 0
+    - _PileNormalStrength: 1.32
     - _PuddleScale: 0.15
     - _PuddleSharpness: 0.149
     - _ReflectionOpacity: 0.106
@@ -83,15 +84,15 @@ Material:
     - _SnowAmount: 0.601
     - _SnowBumpScale: 1.2
     - _SnowEdgeSoftness: 0.465
-    - _SnowMaxHeight: 1
-    - _SnowPileSharpness: 0.5
+    - _SnowMaxHeight: 0.285
+    - _SnowPileSharpness: 0.9
     - _SparkleIntensity: 2.89
     - _SparkleScale: 35
     - _SparkleSize: 0.069
     - _SparkleThreshold: 0.283
     - _TileBlendSharpness: 0.01
     - _UseMeshUV: 1
-    - _UsePileNoise: 0
+    - _UsePileNoise: 1
     - _WaterAmount: 0.785
     - _WaterEdgeSoftness: 0.151
     - _WaterMeltsSnow: 1

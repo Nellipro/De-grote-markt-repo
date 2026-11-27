@@ -70,11 +70,17 @@ Shader "Custom/VR_Reflective_Tile_Water"
         TEXTURE2D(_SecondBaseMap);
         TEXTURE2D(_SecondTileNoiseMap);
         TEXTURE2D(_WaterNoiseMap);
+        // [CHANGED]: Added dedicated sampler so _WaterNoiseMap has a valid paired sampler in the vertex stage
+        SAMPLER(sampler_WaterNoiseMap);
 
         TEXTURE2D(_SnowMap);
         TEXTURE2D(_SnowBumpMap);
         TEXTURE2D(_SnowNoiseMap);
+        // [CHANGED]: Added dedicated sampler so _SnowNoiseMap has a valid paired sampler in the vertex stage
+        SAMPLER(sampler_SnowNoiseMap);
         TEXTURE2D(_SnowPileNoiseMap);
+        // [CHANGED]: Added dedicated sampler so _SnowPileNoiseMap has a valid paired sampler in the vertex stage
+        SAMPLER(sampler_SnowPileNoiseMap);
 
         CBUFFER_START(UnityPerMaterial)
             float4 _BaseMap_ST;
@@ -120,19 +126,22 @@ Shader "Custom/VR_Reflective_Tile_Water"
             half clampedWater = saturate(_WaterAmount);
             half curvedWater = clampedWater * clampedWater;
             half waterThreshold = lerp(1.0h + _WaterEdgeSoftness, -_WaterEdgeSoftness, curvedWater);
-            half waterNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_BaseMap, TRANSFORM_TEX(uv, _WaterNoiseMap), 0).r;
+            // [CHANGED]: Replaced sampler_BaseMap with sampler_WaterNoiseMap
+            half waterNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_WaterNoiseMap, TRANSFORM_TEX(uv, _WaterNoiseMap), 0).r;
             half waterMask = smoothstep(waterThreshold - _WaterEdgeSoftness, waterThreshold + _WaterEdgeSoftness, waterNoise) * step(0.0001h, clampedWater);
 
             half clampedSnow = saturate(_SnowAmount);
             half curvedSnow = clampedSnow * clampedSnow;
             half snowThreshold = lerp(1.0h + _SnowEdgeSoftness, -_SnowEdgeSoftness, curvedSnow);
-            half snowNoise = SAMPLE_TEXTURE2D_LOD(_SnowNoiseMap, sampler_BaseMap, TRANSFORM_TEX(uv, _SnowNoiseMap), 0).r;
+            // [CHANGED]: Replaced sampler_BaseMap with sampler_SnowNoiseMap
+            half snowNoise = SAMPLE_TEXTURE2D_LOD(_SnowNoiseMap, sampler_SnowNoiseMap, TRANSFORM_TEX(uv, _SnowNoiseMap), 0).r;
             half snowMask = smoothstep(snowThreshold - _SnowEdgeSoftness, snowThreshold + _SnowEdgeSoftness, snowNoise) * step(0.0001h, clampedSnow);
             snowMask *= saturate(upwardNormalY);
             snowMask *= saturate(1.0h - waterMask * _WaterMeltsSnow);
 
             #if defined(_USE_PILE_NOISE)
-                half pileNoise = SAMPLE_TEXTURE2D_LOD(_SnowPileNoiseMap, sampler_BaseMap, TRANSFORM_TEX(uv, _SnowPileNoiseMap), 0).r;
+                // [CHANGED]: Replaced sampler_BaseMap with sampler_SnowPileNoiseMap
+                half pileNoise = SAMPLE_TEXTURE2D_LOD(_SnowPileNoiseMap, sampler_SnowPileNoiseMap, TRANSFORM_TEX(uv, _SnowPileNoiseMap), 0).r;
             #else
                 half pileNoise = snowNoise;
             #endif
@@ -175,7 +184,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 float3 positionWS  : TEXCOORD1;
                 half3 normalWS     : TEXCOORD2;
                 half4 tangentWS    : TEXCOORD3;
-                // [CHANGED]: Packed original undisplaced floor upward normal Y into TEXCOORD4.y alongside fogFactor
                 half2 fogAndUpward : TEXCOORD4;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
                 UNITY_VERTEX_OUTPUT_STEREO
@@ -235,7 +243,8 @@ Shader "Custom/VR_Reflective_Tile_Water"
                         if (distSq > sizeSq)
                             continue;
 
-                        half spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_BaseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
+                        // [CHANGED]: Use matching sampler_WaterNoiseMap
+                        half spawnNoise = SAMPLE_TEXTURE2D_LOD(_WaterNoiseMap, sampler_WaterNoiseMap, TRANSFORM_TEX(dropUV, _WaterNoiseMap), 0).r;
                         if (spawnNoise < waterThreshold)
                             continue;
 
@@ -297,7 +306,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 output.normalWS = displacedNormalWS;
                 output.tangentWS = half4((half3)baseNormalInput.tangentWS, (half)input.tangentOS.w);
                 output.uv = input.uv;
-                // [CHANGED]: Store fogFactor in .x and original undisplaced upwardY in .y
                 output.fogAndUpward = half2((half)ComputeFogFactor(vertexInput.positionCS.z), upwardY);
 
                 return output;
@@ -322,7 +330,8 @@ Shader "Custom/VR_Reflective_Tile_Water"
 
                 // 2. Calibrated Water Mask
                 float2 uvWaterNoise = TRANSFORM_TEX(input.uv, _WaterNoiseMap);
-                half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_BaseMap, uvWaterNoise).r;
+                // [CHANGED]: Use matching sampler_WaterNoiseMap
+                half waterNoise = SAMPLE_TEXTURE2D(_WaterNoiseMap, sampler_WaterNoiseMap, uvWaterNoise).r;
 
                 half clampedWater = saturate(_WaterAmount);
                 half curvedWater = clampedWater * clampedWater;
@@ -340,12 +349,12 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 half clampedSnow = saturate(_SnowAmount);
                 half curvedSnow = clampedSnow * clampedSnow;
                 float2 uvSnowNoise = TRANSFORM_TEX(input.uv, _SnowNoiseMap);
-                half snowNoise = SAMPLE_TEXTURE2D(_SnowNoiseMap, sampler_BaseMap, uvSnowNoise).r;
+                // [CHANGED]: Use matching sampler_SnowNoiseMap
+                half snowNoise = SAMPLE_TEXTURE2D(_SnowNoiseMap, sampler_SnowNoiseMap, uvSnowNoise).r;
 
                 half snowThreshold = lerp(1.0h + _SnowEdgeSoftness, -_SnowEdgeSoftness, curvedSnow);
                 half snowMask = smoothstep(snowThreshold - _SnowEdgeSoftness, snowThreshold + _SnowEdgeSoftness, snowNoise);
                 snowMask *= step(0.0001h, clampedSnow);
-                // [CHANGED]: Use original undisplaced upward normal (input.fogAndUpward.y) so steep snow pile slopes remain covered in snow
                 snowMask *= saturate(input.fogAndUpward.y);
                 snowMask *= saturate(1.0h - waterMask * _WaterMeltsSnow);
 
@@ -443,7 +452,6 @@ Shader "Custom/VR_Reflective_Tile_Water"
                 [branch]
                 if (fogDistanceMask > 0.001h)
                 {
-                    // [CHANGED]: Read fogFactor from input.fogAndUpward.x
                     half3 foggedColor = MixFog(finalColor, input.fogAndUpward.x);
                     finalColor = lerp(finalColor, foggedColor, fogDistanceMask);
                 }
