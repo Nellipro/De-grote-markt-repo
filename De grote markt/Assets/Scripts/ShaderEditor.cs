@@ -1,5 +1,5 @@
 using UnityEngine;
-using UnityEngine.UI;
+// [CHANGED]: Removed UnityEngine.UI since sliders now call the methods directly via Inspector events
 
 public class WeatherShaderUIController : MonoBehaviour
 {
@@ -10,65 +10,33 @@ public class WeatherShaderUIController : MonoBehaviour
     [Tooltip("If true, edits the shared material asset directly (changes persist after Play Mode).")]
     [SerializeField] private bool modifySharedMaterial = false;
 
-    [Header("UI Sliders (0 to 1)")]
-    [SerializeField] private Slider waterAmountSlider;
-    [SerializeField] private Slider snowAmountSlider;
+    // [CHANGED]: Removed waterAmountSlider, snowAmountSlider, OnEnable, OnDisable, and InitializeSliders
 
     private static readonly int WaterAmountID = Shader.PropertyToID("_WaterAmount");
     private static readonly int SnowAmountID = Shader.PropertyToID("_SnowAmount");
 
-    protected virtual void OnEnable()
-    {
-        InitializeSliders();
-
-        if (waterAmountSlider != null)
-            waterAmountSlider.onValueChanged.AddListener(SetWaterAmount);
-
-        if (snowAmountSlider != null)
-            snowAmountSlider.onValueChanged.AddListener(SetSnowAmount);
-    }
-
-    protected virtual void OnDisable()
-    {
-        if (waterAmountSlider != null)
-            waterAmountSlider.onValueChanged.RemoveListener(SetWaterAmount);
-
-        if (snowAmountSlider != null)
-            snowAmountSlider.onValueChanged.RemoveListener(SetSnowAmount);
-    }
-
-    protected virtual void InitializeSliders()
-    {
-        Material referenceMat = GetFirstValidMaterial();
-        if (referenceMat == null)
-            return;
-
-        if (waterAmountSlider != null && referenceMat.HasProperty(WaterAmountID))
-        {
-            waterAmountSlider.minValue = 0f;
-            waterAmountSlider.maxValue = 1f;
-            waterAmountSlider.SetValueWithoutNotify(referenceMat.GetFloat(WaterAmountID));
-        }
-
-        if (snowAmountSlider != null && referenceMat.HasProperty(SnowAmountID))
-        {
-            snowAmountSlider.minValue = 0f;
-            snowAmountSlider.maxValue = 1f;
-            snowAmountSlider.SetValueWithoutNotify(referenceMat.GetFloat(SnowAmountID));
-        }
-    }
-
+    // [CHANGED]: Drag this component into the Water Slider's OnValueChanged (Dynamic float) slot
     public virtual void SetWaterAmount(float value)
     {
         ApplyFloatProperty(WaterAmountID, Mathf.Clamp01(value));
     }
 
+    // [CHANGED]: Drag this component into the Snow Slider's OnValueChanged (Dynamic float) slot
     public virtual void SetSnowAmount(float value)
     {
         ApplyFloatProperty(SnowAmountID, Mathf.Clamp01(value));
     }
 
-    protected void ApplyFloatProperty(int propertyID, float value)
+    // [CHANGED]: Added a generic helper so you can also wire up any other float shader property from a slider if needed
+    public virtual void SetCustomFloatProperty(string propertyName, float value)
+    {
+        if (string.IsNullOrEmpty(propertyName))
+            return;
+
+        ApplyFloatProperty(Shader.PropertyToID(propertyName), value);
+    }
+
+    protected virtual void ApplyFloatProperty(int propertyID, float value)
     {
         if (targetRenderers == null)
             return;
@@ -87,19 +55,5 @@ public class WeatherShaderUIController : MonoBehaviour
                 mat.SetFloat(propertyID, value);
             }
         }
-    }
-
-    private Material GetFirstValidMaterial()
-    {
-        if (targetRenderers == null)
-            return null;
-
-        for (int i = 0; i < targetRenderers.Length; i++)
-        {
-            if (targetRenderers[i] != null && targetRenderers[i].sharedMaterial != null)
-                return targetRenderers[i].sharedMaterial;
-        }
-
-        return null;
     }
 }
